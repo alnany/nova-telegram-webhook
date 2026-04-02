@@ -3,7 +3,11 @@
   "functions": {
     "api/telegram.js": {
       "memory": 256,
-      "maxDuration": 10
+      "maxDuration": 25
     }
+  },
+  "env": {
+    "TELEGRAM_BOT_TOKEN": "@telegram-bot-token",
+    "WEBHOOK_SECRET": "@webhook-secret"
   }
 }
