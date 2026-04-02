@@ -2,7 +2,6 @@
 // LLM: Groq (llama-3.3-70b-versatile)
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 const NOVA_NAME = "nova";
@@ -95,10 +94,6 @@ Rules:
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
-
-  if (WEBHOOK_SECRET && req.headers["x-telegram-bot-api-secret-token"] !== WEBHOOK_SECRET) {
-    return res.status(403).end();
-  }
 
   // ACK immediately — Telegram needs a fast 200 OK.
   res.status(200).json({ ok: true });
