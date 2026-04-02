@@ -1,8 +1,9 @@
 // Nova Telegram Webhook Handler — deployed to Vercel
-// LLM: Pollinations.ai (free, no API key required)
+// LLM: Gemini 2.0 Flash (via Google AI Studio)
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const NOVA_NAME = "nova";
 const NOVA_USERNAME = "novaopenclawtg_bot";
@@ -11,14 +12,28 @@ async function callLLM(messages) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch("https://text.pollinations.ai/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model: "openai", seed: 42 }),
-      signal: controller.signal,
-    });
-    if (!res.ok) return null;
-    return (await res.text()).trim() || null;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${GEMINI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gemini-2.0-flash-lite",
+          messages,
+          max_tokens: 300,
+        }),
+        signal: controller.signal,
+      }
+    );
+    if (!res.ok) {
+      console.error("[LLM ERROR]", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (e) {
     console.error("[LLM TIMEOUT/ERROR]", e.message);
     return null;
