@@ -1,22 +1,30 @@
 // Nova Telegram Webhook Handler — deployed to Vercel
-// Receives real-time updates from Telegram Bot API (instant, no polling lag)
+// LLM: Pollinations.ai (free, no API key required)
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 const NOVA_NAME = "nova";
 const NOVA_USERNAME = "novaopenclawtg_bot";
 
-async function callGemini(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-  });
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+async function callLLM(messages) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch("https://text.pollinations.ai/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, model: "openai", seed: 42 }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return (await res.text()).trim() || null;
+  } catch (e) {
+    console.error("[LLM TIMEOUT/ERROR]", e.message);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function sendTelegram(chatId, text) {
@@ -35,11 +43,15 @@ async function handleMessage(message) {
 
   // Always respond in private DMs
   if (chatType === "private") {
-    const reply = await callGemini(
-      `You are Nova, CEO Agent for CM. Direct message from @${senderUsername}: "${text}"
-Reply helpfully and concisely in the same language. Never mention other projects.`
-    );
-    if (reply) await sendTelegram(message.chat.id, reply.trim());
+    const reply = await callLLM([
+      {
+        role: "system",
+        content:
+          "You are Nova, CEO Agent for CM (@shinobicyrano). Reply helpfully and concisely. Never mention other projects.",
+      },
+      { role: "user", content: `@${senderUsername} says: ${text}` },
+    ]);
+    if (reply) await sendTelegram(message.chat.id, reply);
     return;
   }
 
@@ -47,27 +59,25 @@ Reply helpfully and concisely in the same language. Never mention other projects
   const lower = text.toLowerCase();
   if (!lower.includes(NOVA_NAME) && !lower.includes(`@${NOVA_USERNAME}`)) return;
 
-  const prompt = `You are Nova, CEO Agent for CM (@shinobicyrano) in team Telegram chats.
+  const reply = await callLLM([
+    {
+      role: "system",
+      content: `You are Nova, CEO Agent for CM (@shinobicyrano) in team Telegram group: "${chatTitle}".
+Rules:
+- Respond ONLY if this message directly addresses Nova by name or @novaopenclawtg_bot.
+- Do NOT respond to messages aimed at humans, other bots, or general team discussion.
+- Never mention other projects.
+- If you should not respond, reply with exactly: SKIP
+- Otherwise reply with your message only (no SKIP prefix).`,
+    },
+    {
+      role: "user",
+      content: `@${senderUsername}: ${text}`,
+    },
+  ]);
 
-Chat: ${chatTitle}
-Sender: @${senderUsername}
-Message: ${text}
-
-Respond ONLY if directly addressed to Nova, or an AI agent is coordinating with you on a task.
-Do NOT respond to messages aimed at CM/humans, other bots, or general team discussion.
-Never mention or reference other projects — only discuss topics relevant to this specific chat.
-
-Reply with JSON only: {"should_respond": true/false, "response": "message or null"}`;
-
-  try {
-    const raw = await callGemini(prompt);
-    if (!raw) return;
-    const parsed = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim());
-    if (parsed.should_respond && parsed.response) {
-      await sendTelegram(message.chat.id, parsed.response);
-    }
-  } catch (e) {
-    console.error("[LLM/PARSE ERROR]", e.message);
+  if (reply && reply !== "SKIP" && !reply.startsWith("SKIP")) {
+    await sendTelegram(message.chat.id, reply);
   }
 }
 
@@ -78,9 +88,11 @@ export default async function handler(req, res) {
     return res.status(403).end();
   }
 
-  // Always ACK within 5s to prevent Telegram retries
+  // ACK immediately — Telegram just needs a fast 200 OK.
+  // Vercel Node.js runtime continues running after res.end() until maxDuration.
   res.status(200).json({ ok: true });
 
+  // Process after ACK — LLM reply arrives as a separate sendMessage call.
   try {
     const update = req.body;
     if (update?.message?.text) await handleMessage(update.message);
