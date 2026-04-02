@@ -1,9 +1,9 @@
 // Nova Telegram Webhook Handler — deployed to Vercel
-// LLM: Gemini 2.0 Flash (via Google AI Studio)
+// LLM: Groq (llama-3.3-70b-versatile)
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 const NOVA_NAME = "nova";
 const NOVA_USERNAME = "novaopenclawtg_bot";
@@ -12,22 +12,19 @@ async function callLLM(messages) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${GEMINI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gemini-2.0-flash-lite",
-          messages,
-          max_tokens: 300,
-        }),
-        signal: controller.signal,
-      }
-    );
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages,
+        max_tokens: 300,
+      }),
+      signal: controller.signal,
+    });
     if (!res.ok) {
       console.error("[LLM ERROR]", res.status, await res.text());
       return null;
@@ -103,11 +100,10 @@ export default async function handler(req, res) {
     return res.status(403).end();
   }
 
-  // ACK immediately — Telegram just needs a fast 200 OK.
-  // Vercel Node.js runtime continues running after res.end() until maxDuration.
+  // ACK immediately — Telegram needs a fast 200 OK.
   res.status(200).json({ ok: true });
 
-  // Process after ACK — LLM reply arrives as a separate sendMessage call.
+  // Process after ACK
   try {
     const update = req.body;
     if (update?.message?.text) await handleMessage(update.message);
